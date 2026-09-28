@@ -1,7 +1,10 @@
 package com.kentaiwamoto.grapplingstudio;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -17,6 +20,7 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.Handler;
+import android.net.Uri;
 import android.util.Size;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -44,9 +48,14 @@ final class StudioOverlay {
     private final int barHeight;
     private boolean selecting = true, drawing = true, closed;
     private CameraBox camera;
+    private TimelineView timeline;
+    private final Uri videoUri;
+    private final int videoDuration,videoPosition;
+    private BroadcastReceiver timelineReceiver;
 
-    StudioOverlay(Context c, Handler h, RectF initialArea, Events e) {
+    StudioOverlay(Context c, Handler h, RectF initialArea, Uri uri, int duration, int position, Events e) {
         context=c; handler=h; initial=initialArea; events=e;
+        videoUri=uri; videoDuration=duration; videoPosition=position;
         manager=c.getSystemService(WindowManager.class);
         barHeight=Math.round(60*c.getResources().getDisplayMetrics().density);
         bar=new LinearLayout(c); bar.setBackgroundColor(0xee202020);
@@ -57,20 +66,15 @@ final class StudioOverlay {
             if (!selecting) return;
             int[] origin=new int[2]; canvas.getLocationOnScreen(origin);
             RectF selected=canvas.selected(); selected.offset(origin[0],origin[1]);
-            selecting=false;
-            canvasParams.gravity=Gravity.TOP|Gravity.LEFT;
-            canvasParams.x=Math.round(selected.left-origin[0]);
-            canvasParams.y=barHeight+Math.round(selected.top-origin[1]);
-            canvasParams.width=Math.max(1,Math.round(selected.width()));
-            canvasParams.height=Math.max(1,Math.round(selected.height()));
-            canvas.crop=new RectF(0,0,canvasParams.width,canvasParams.height);
-            manager.updateViewLayout(canvas,canvasParams);
-            canvas.invalidate();
+            selecting=false; canvas.invalidate();
             events.onRecord(selected);
             bar.removeAllViews();
+            button("Play/Pause", w -> context.sendBroadcast(new android.content.Intent(MainActivity.ACTION_PLAY_PAUSE)
+                .setPackage(context.getPackageName())));
             button("Draw", w -> setDrawing(true)); button("Touch", w -> setDrawing(false));
             button("Clear ink", w -> canvas.clear());
             button("Camera", w -> toggleCamera()); button("Stop", w -> events.onStop());
+            showTimeline();
         });
         button("Use phone", v -> setDrawing(false));
         button("Adjust", v -> setDrawing(true));
@@ -103,8 +107,28 @@ final class StudioOverlay {
         manager.updateViewLayout(canvas,canvasParams);
     }
     private void toggleCamera() { if (camera != null) camera.toggle(); }
+    private void showTimeline() {
+        if(videoUri==null || videoDuration<=0) return;
+        int d=Math.round(context.getResources().getDisplayMetrics().density);
+        int height=78*d;
+        int screenHeight=context.getResources().getDisplayMetrics().heightPixels;
+        timeline=new TimelineView(context);
+        timeline.setVideo(videoUri,videoDuration);
+        timeline.setPosition(videoPosition);
+        timeline.setSeekListener(milliseconds -> context.sendBroadcast(new Intent(MainActivity.ACTION_SEEK)
+            .setPackage(context.getPackageName()).putExtra("positionMs",milliseconds)));
+        manager.addView(timeline,params(height,Math.max(barHeight,screenHeight-height)));
+        timelineReceiver=new BroadcastReceiver() {
+            @Override public void onReceive(Context c,Intent intent) {
+                if(timeline!=null) timeline.setPosition(intent.getIntExtra("positionMs",0));
+            }
+        };
+        context.registerReceiver(timelineReceiver,new IntentFilter(MainActivity.ACTION_POSITION),Context.RECEIVER_NOT_EXPORTED);
+    }
     void close() {
         if (closed) return; closed=true;
+        if(timelineReceiver!=null) { context.unregisterReceiver(timelineReceiver); timelineReceiver=null; }
+        if(timeline!=null) { manager.removeViewImmediate(timeline); timeline=null; }
         if (camera != null) camera.close();
         manager.removeViewImmediate(bar); manager.removeViewImmediate(canvas);
     }

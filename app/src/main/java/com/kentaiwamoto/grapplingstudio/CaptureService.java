@@ -73,7 +73,9 @@ public class CaptureService extends Service {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA);
             try {
                 RectF bounds=intent.getParcelableExtra("videoBounds");
-                overlay=new StudioOverlay(this,handler,bounds,new StudioOverlay.Events() {
+                overlay=new StudioOverlay(this,handler,bounds,
+                    intent.getParcelableExtra("videoUri"),intent.getIntExtra("videoDuration",0),
+                    intent.getIntExtra("videoPosition",0),new StudioOverlay.Events() {
                     @Override public void onRecord(RectF area) {
                         selected=area;
                         try { begin(intent); }

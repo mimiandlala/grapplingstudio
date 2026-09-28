@@ -2,7 +2,10 @@ package com.kentaiwamoto.grapplingstudio;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.RectF;
 import android.media.AudioDeviceInfo;
@@ -23,21 +26,39 @@ import android.widget.TextView;
 import android.widget.VideoView;
 
 public class MainActivity extends Activity {
+    static final String ACTION_PLAY_PAUSE = "com.kentaiwamoto.grapplingstudio.PLAY_PAUSE";
+    static final String ACTION_SEEK = "com.kentaiwamoto.grapplingstudio.SEEK";
+    static final String ACTION_POSITION = "com.kentaiwamoto.grapplingstudio.POSITION";
     private static final int PICK_VIDEO = 1, CAPTURE = 2, PERMISSIONS = 3;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private VideoView video;
     private TextView status, time;
     private SeekBar seek;
+    private TimelineView timeline;
+    private Uri selectedVideo;
     private AudioManager audio;
     private int micId = -1;
     private boolean dragging;
     private boolean videoReady;
+    private final BroadcastReceiver playbackReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!videoReady) return;
+            if (ACTION_PLAY_PAUSE.equals(intent.getAction())) {
+                if (video.isPlaying()) video.pause(); else video.start();
+            } else if (ACTION_SEEK.equals(intent.getAction())) {
+                video.seekTo(intent.getIntExtra("positionMs",0));
+            }
+        }
+    };
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (videoReady && video != null) {
                 seek.setMax(Math.max(1, video.getDuration()));
                 if (!dragging) seek.setProgress(video.getCurrentPosition());
                 time.setText(format(video.getCurrentPosition()) + " / " + format(video.getDuration()));
+                timeline.setPosition(video.getCurrentPosition());
+                sendBroadcast(new Intent(ACTION_POSITION).setPackage(getPackageName())
+                    .putExtra("positionMs",video.getCurrentPosition()));
             }
             handler.postDelayed(this, 300);
         }
@@ -56,13 +77,19 @@ public class MainActivity extends Activity {
         add(top, "Find DJI mic", v -> findMic());
         video = new VideoView(this);
         root.addView(video, new LinearLayout.LayoutParams(-1, 0, 1));
-        video.setOnPreparedListener(mp -> { videoReady = true; seek.setMax(Math.max(1, video.getDuration())); status.setText("Video ready. Cue it, then prepare recording. Controls remain below the selected video area."); });
+        video.setOnPreparedListener(mp -> { videoReady = true; seek.setMax(Math.max(1, video.getDuration()));
+            timeline.setVideo(selectedVideo,video.getDuration());
+            status.setText("Video ready. Drag the timeline; hold it to seek precisely."); });
         video.setOnErrorListener((mp, what, extra) -> { status.setText("Cannot play this video (" + what + "). Choose a local MP4."); return true; });
         LinearLayout controls = row(root);
         add(controls, "◀ 10s", v -> { if (videoReady) video.seekTo(Math.max(0, video.getCurrentPosition() - 10000)); });
         add(controls, "Play / Pause", v -> { if (videoReady) { if (video.isPlaying()) video.pause(); else video.start(); } });
         add(controls, "10s ▶", v -> { if (videoReady) video.seekTo(Math.min(video.getDuration(), video.getCurrentPosition() + 10000)); });
+        timeline=new TimelineView(this);
+        root.addView(timeline,new LinearLayout.LayoutParams(-1,Math.round(78*getResources().getDisplayMetrics().density)));
+        timeline.setSeekListener(position -> { if(videoReady) video.seekTo(position); });
         seek = new SeekBar(this); root.addView(seek);
+        seek.setVisibility(View.GONE);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) { if (fromUser && videoReady) video.seekTo(progress); }
             @Override public void onStartTrackingTouch(SeekBar s) { dragging = true; }
@@ -72,6 +99,9 @@ public class MainActivity extends Activity {
         add(root, "Prepare full-screen recorder", v -> prepare());
         add(root, "Stop recording", v -> { Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.STOP); startService(i); status.setText("Finishing recording and crop…"); });
         setContentView(root);
+        IntentFilter playback=new IntentFilter(ACTION_PLAY_PAUSE);
+        playback.addAction(ACTION_SEEK);
+        registerReceiver(playbackReceiver, playback, Context.RECEIVER_NOT_EXPORTED);
         handler.post(tick);
         findMic();
     }
@@ -118,6 +148,7 @@ public class MainActivity extends Activity {
         if (code == PICK_VIDEO && result == RESULT_OK && data != null) {
             Uri uri = data.getData();
             getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            selectedVideo=uri;
             videoReady = false; video.setVideoURI(uri); video.requestFocus();
         }
         if (code == CAPTURE && result == RESULT_OK && data != null) {
@@ -126,10 +157,13 @@ public class MainActivity extends Activity {
             if (videoReady) {
                 int[] origin = new int[2]; video.getLocationOnScreen(origin);
                 i.putExtra("videoBounds", new RectF(origin[0], origin[1], origin[0]+video.getWidth(), origin[1]+video.getHeight()));
+                i.putExtra("videoUri",selectedVideo);
+                i.putExtra("videoDuration",video.getDuration());
+                i.putExtra("videoPosition",video.getCurrentPosition());
             }
             startForegroundService(i);
             status.setText("Move/resize the crop and face box; cue the video; tap floating Record when ready.");
         }
     }
-    @Override protected void onDestroy() { handler.removeCallbacks(tick); if (video != null) video.stopPlayback(); super.onDestroy(); }
+    @Override protected void onDestroy() { unregisterReceiver(playbackReceiver); handler.removeCallbacks(tick); if (video != null) video.stopPlayback(); super.onDestroy(); }
 }
