@@ -3,7 +3,7 @@ android {
     namespace 'com.kentaiwamoto.grapplingstudio'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.kentaiwamoto.grapplingstudio.v2'
+        applicationId 'com.kentaiwamoto.grapplingstudio.studio3new'
         minSdk 34
         targetSdk 34
         versionCode 1
