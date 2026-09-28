@@ -55,7 +55,6 @@ public class MainActivity extends Activity {
         add(top, "Open video", v -> openVideo());
         add(top, "Find DJI mic", v -> findMic());
         video = new VideoView(this);
-        video.setBackgroundColor(0xff090909);
         root.addView(video, new LinearLayout.LayoutParams(-1, 0, 1));
         video.setOnPreparedListener(mp -> { videoReady = true; seek.setMax(Math.max(1, video.getDuration())); status.setText("Video ready. Cue it, then prepare recording. Controls remain below the selected video area."); });
         video.setOnErrorListener((mp, what, extra) -> { status.setText("Cannot play this video (" + what + "). Choose a local MP4."); return true; });
