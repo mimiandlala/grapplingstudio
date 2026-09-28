@@ -57,7 +57,15 @@ final class StudioOverlay {
             if (!selecting) return;
             int[] origin=new int[2]; canvas.getLocationOnScreen(origin);
             RectF selected=canvas.selected(); selected.offset(origin[0],origin[1]);
-            selecting=false; canvas.invalidate();
+            selecting=false;
+            canvasParams.gravity=Gravity.TOP|Gravity.LEFT;
+            canvasParams.x=Math.round(selected.left-origin[0]);
+            canvasParams.y=barHeight+Math.round(selected.top-origin[1]);
+            canvasParams.width=Math.max(1,Math.round(selected.width()));
+            canvasParams.height=Math.max(1,Math.round(selected.height()));
+            canvas.crop=new RectF(0,0,canvasParams.width,canvasParams.height);
+            manager.updateViewLayout(canvas,canvasParams);
+            canvas.invalidate();
             events.onRecord(selected);
             bar.removeAllViews();
             button("Draw", w -> setDrawing(true)); button("Touch", w -> setDrawing(false));
