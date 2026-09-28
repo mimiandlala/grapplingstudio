@@ -191,11 +191,11 @@ final class StudioOverlay {
                     case MotionEvent.ACTION_DOWN:
                         downX=event.getRawX(); downY=event.getRawY();
                         oldX=position.x; oldY=position.y; oldW=position.width; oldH=position.height;
-                        resize=event.getX()>panel.getWidth()-45*d && event.getY()>panel.getHeight()-45*d;
+                        resize=event.getX()>panel.getWidth()-16*d && event.getY()>panel.getHeight()-16*d;
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         int dx=Math.round(event.getRawX()-downX), dy=Math.round(event.getRawY()-downY);
-                        if (resize) { position.width=Math.max(100*d,Math.min(500*d,oldW+dx)); position.height=Math.max(90*d,Math.min(500*d,oldH+dy)); }
+                        if (resize) { position.width=Math.max(24*d,Math.min(500*d,oldW+dx)); position.height=Math.max(18*d,Math.min(500*d,oldH+dy)); }
                         else { position.x=Math.max(0,oldX+dx); position.y=Math.max(barHeight,oldY+dy); }
                         manager.updateViewLayout(panel,position); return true;
                     default: return true;
