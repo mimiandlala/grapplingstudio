@@ -66,15 +66,27 @@ final class StudioOverlay {
             if (!selecting) return;
             int[] origin=new int[2]; canvas.getLocationOnScreen(origin);
             RectF selected=canvas.selected(); selected.offset(origin[0],origin[1]);
-            selecting=false; canvas.invalidate();
+            selecting=false;
+            // The drawing window itself must occupy only the recorded rectangle.
+            // Views outside that window receive touches directly, including the
+            // player's Play/Pause controls and the filmstrip timeline.
+            int width=Math.max(1,Math.round(selected.width()));
+            int height=Math.max(1,Math.round(selected.height()));
+            canvas.clear();
+            canvas.crop=new RectF(0,0,width,height);
+            canvasParams.gravity=Gravity.TOP|Gravity.LEFT;
+            canvasParams.x=Math.round(selected.left);
+            canvasParams.y=Math.round(selected.top);
+            canvasParams.width=width;
+            canvasParams.height=height;
+            manager.updateViewLayout(canvas,canvasParams);
+            canvas.invalidate();
             events.onRecord(selected);
             bar.removeAllViews();
-            button("Play/Pause", w -> context.sendBroadcast(new android.content.Intent(MainActivity.ACTION_PLAY_PAUSE)
-                .setPackage(context.getPackageName())));
-            button("Draw", w -> setDrawing(true)); button("Touch", w -> setDrawing(false));
+            button("Thin pen", w -> canvas.setPenWidth(1f));
+            button("Normal pen", w -> canvas.setPenWidth(7f));
             button("Clear ink", w -> canvas.clear());
             button("Camera", w -> toggleCamera()); button("Stop", w -> events.onStop());
-            showTimeline();
         });
         button("Use phone", v -> setDrawing(false));
         button("Adjust", v -> setDrawing(true));
@@ -134,8 +146,13 @@ final class StudioOverlay {
     }
     private final class DrawingView extends View {
         private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG), edge=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final ArrayList<Path> paths=new ArrayList<>();
+        private final ArrayList<Stroke> paths=new ArrayList<>();
         private Path active; private RectF crop;
+        private float penWidth=7f, activeWidth;
+        private final class Stroke {
+            final Path path; final float width;
+            Stroke(Path p,float w) { path=p; width=w; }
+        }
         private float downX,downY; private boolean resize;
         DrawingView(Context c) {
             super(c);
@@ -150,9 +167,14 @@ final class StudioOverlay {
         }
         RectF selected() { return new RectF(crop); }
         void clear() { paths.clear(); active=null; invalidate(); }
+        void setPenWidth(float dp) { penWidth=dp; }
         @Override protected void onDraw(Canvas c) {
-            for (Path p:paths) c.drawPath(p,pen);
-            if (active!=null) c.drawPath(active,pen);
+            float density=getResources().getDisplayMetrics().density;
+            for (Stroke stroke:paths) {
+                pen.setStrokeWidth(stroke.width*density);
+                c.drawPath(stroke.path,pen);
+            }
+            if (active!=null) { pen.setStrokeWidth(activeWidth*density); c.drawPath(active,pen); }
             if (crop!=null) {
                 float e=edge.getStrokeWidth(); c.save(); c.clipOutRect(crop);
                 c.drawRect(crop.left-e,crop.top-e,crop.right+e,crop.bottom+e,edge);
@@ -167,7 +189,7 @@ final class StudioOverlay {
                     if (selecting) {
                         downX=x; downY=y;
                         resize=Math.abs(x-crop.right)<65 && Math.abs(y-crop.bottom)<65;
-                    } else if (drawing) { active=new Path(); active.moveTo(x,y); invalidate(); }
+                    } else if (drawing) { active=new Path(); activeWidth=penWidth; active.moveTo(x,y); invalidate(); }
                     return true;
                 case MotionEvent.ACTION_MOVE:
                     if (selecting) {
@@ -187,7 +209,7 @@ final class StudioOverlay {
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
-                    if (active!=null) { active.lineTo(x,y); paths.add(active); active=null; invalidate(); }
+                    if (active!=null) { active.lineTo(x,y); paths.add(new Stroke(active,activeWidth)); active=null; invalidate(); }
                     return true;
             }
             return true;

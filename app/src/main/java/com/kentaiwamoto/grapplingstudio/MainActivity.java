@@ -19,7 +19,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
+import android.view.MotionEvent;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -32,6 +34,9 @@ public class MainActivity extends Activity {
     private static final int PICK_VIDEO = 1, CAPTURE = 2, PERMISSIONS = 3;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private VideoView video;
+    private FrameLayout videoFrame;
+    private float videoZoom=1f;
+    private float videoPanX,videoPanY;
     private TextView status, time;
     private SeekBar seek;
     private TimelineView timeline;
@@ -75,8 +80,12 @@ public class MainActivity extends Activity {
         LinearLayout top = row(root);
         add(top, "Open video", v -> openVideo());
         add(top, "Find DJI mic", v -> findMic());
+        videoFrame=new FrameLayout(this);
+        videoFrame.setClipChildren(true);
+        videoFrame.setClipToPadding(true);
+        root.addView(videoFrame,new LinearLayout.LayoutParams(-1,0,1));
         video = new VideoView(this);
-        root.addView(video, new LinearLayout.LayoutParams(-1, 0, 1));
+        videoFrame.addView(video,new FrameLayout.LayoutParams(-1,-1));
         video.setOnPreparedListener(mp -> { videoReady = true; seek.setMax(Math.max(1, video.getDuration()));
             timeline.setVideo(selectedVideo,video.getDuration());
             status.setText("Video ready. Drag the timeline; hold it to seek precisely."); });
@@ -85,6 +94,33 @@ public class MainActivity extends Activity {
         add(controls, "◀ 10s", v -> { if (videoReady) video.seekTo(Math.max(0, video.getCurrentPosition() - 10000)); });
         add(controls, "Play / Pause", v -> { if (videoReady) { if (video.isPlaying()) video.pause(); else video.start(); } });
         add(controls, "10s ▶", v -> { if (videoReady) video.seekTo(Math.min(video.getDuration(), video.getCurrentPosition() + 10000)); });
+        LinearLayout zoomControls=row(root);
+        add(zoomControls,"Video −",v -> setVideoZoom(videoZoom-0.25f));
+        add(zoomControls,"Video +",v -> setVideoZoom(videoZoom+0.25f));
+        add(zoomControls,"Reset zoom",v -> setVideoZoom(1f));
+        TextView movePad=new TextView(this);
+        movePad.setText("Drag here to move the zoomed video");
+        movePad.setTextSize(13);
+        movePad.setGravity(android.view.Gravity.CENTER);
+        movePad.setBackgroundColor(0xffd5d5d5);
+        root.addView(movePad,new LinearLayout.LayoutParams(-1,Math.round(58*getResources().getDisplayMetrics().density)));
+        movePad.setOnTouchListener(new View.OnTouchListener() {
+            private float lastX,lastY;
+            @Override public boolean onTouch(View view,MotionEvent event) {
+                switch(event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        lastX=event.getX(); lastY=event.getY(); return true;
+                    case MotionEvent.ACTION_MOVE:
+                        videoPanX+=event.getX()-lastX;
+                        videoPanY+=event.getY()-lastY;
+                        lastX=event.getX(); lastY=event.getY();
+                        applyVideoTransform(); return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL: return true;
+                }
+                return true;
+            }
+        });
         timeline=new TimelineView(this);
         root.addView(timeline,new LinearLayout.LayoutParams(-1,Math.round(78*getResources().getDisplayMetrics().density)));
         timeline.setSeekListener(position -> { if(videoReady) video.seekTo(position); });
@@ -106,6 +142,20 @@ public class MainActivity extends Activity {
         findMic();
     }
     private LinearLayout row(LinearLayout root) { LinearLayout r = new LinearLayout(this); root.addView(r); return r; }
+    private void setVideoZoom(float zoom) {
+        videoZoom=Math.max(1f,Math.min(4f,zoom));
+        applyVideoTransform();
+    }
+    private void applyVideoTransform() {
+        float limitX=Math.max(0,(videoZoom-1f)*videoFrame.getWidth()/2f);
+        float limitY=Math.max(0,(videoZoom-1f)*videoFrame.getHeight()/2f);
+        videoPanX=Math.max(-limitX,Math.min(limitX,videoPanX));
+        videoPanY=Math.max(-limitY,Math.min(limitY,videoPanY));
+        video.setScaleX(videoZoom);
+        video.setScaleY(videoZoom);
+        video.setTranslationX(videoPanX);
+        video.setTranslationY(videoPanY);
+    }
     private void add(LinearLayout root, String title, View.OnClickListener click) {
         Button b = new Button(this); b.setText(title); b.setTextSize(11); b.setOnClickListener(click);
         root.addView(b, new LinearLayout.LayoutParams(root.getOrientation() == LinearLayout.HORIZONTAL ? 0 : -1, -2, root.getOrientation() == LinearLayout.HORIZONTAL ? 1 : 0));
@@ -155,8 +205,8 @@ public class MainActivity extends Activity {
             Intent i = new Intent(this, CaptureService.class); i.setAction(CaptureService.START);
             i.putExtra("result", result); i.putExtra("data", data); i.putExtra("inputId", micId);
             if (videoReady) {
-                int[] origin = new int[2]; video.getLocationOnScreen(origin);
-                i.putExtra("videoBounds", new RectF(origin[0], origin[1], origin[0]+video.getWidth(), origin[1]+video.getHeight()));
+                int[] origin = new int[2]; videoFrame.getLocationOnScreen(origin);
+                i.putExtra("videoBounds", new RectF(origin[0], origin[1], origin[0]+videoFrame.getWidth(), origin[1]+videoFrame.getHeight()));
                 i.putExtra("videoUri",selectedVideo);
                 i.putExtra("videoDuration",video.getDuration());
                 i.putExtra("videoPosition",video.getCurrentPosition());
